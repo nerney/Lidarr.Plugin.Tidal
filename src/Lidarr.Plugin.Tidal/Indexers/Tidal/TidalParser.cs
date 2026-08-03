@@ -3,7 +3,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
+using NLog;
 using NzbDrone.Common.Http;
+using NzbDrone.Common.Instrumentation;
 using NzbDrone.Core.Parser.Model;
 using NzbDrone.Plugin.Tidal;
 using TidalSharp.Data;
@@ -13,7 +15,14 @@ namespace NzbDrone.Core.Indexers.Tidal
 {
     public class TidalParser : IParseIndexerResponse
     {
+        private readonly Logger _logger;
+
         public TidalIndexerSettings Settings { get; set; }
+
+        public TidalParser()
+        {
+            _logger = NzbDroneLogger.GetLogger(this);
+        }
 
         public IList<ReleaseInfo> ParseResponse(IndexerResponse response)
         {
@@ -21,19 +30,42 @@ namespace NzbDrone.Core.Indexers.Tidal
             var content = new HttpResponse<TidalSearchResponse>(response.HttpResponse).Content;
 
             var jsonResponse = JObject.Parse(content).ToObject<TidalSearchResponse>();
-            var releases = jsonResponse.AlbumResults.Items.Select(result => ProcessAlbumResult(result)).ToArray();
+
+            var searchArtist = TidalRequestGenerator.GetSearchArtist();
+            var searchAlbum = TidalRequestGenerator.GetSearchAlbum();
+            var strategy = (TidalSearchStrategy)Settings.SearchStrategy;
+
+            var albums = strategy == TidalSearchStrategy.Fast
+                ? jsonResponse.AlbumResults.Items.Where(a => IsRelevantMatch(a, searchArtist, searchAlbum)).ToArray()
+                : jsonResponse.AlbumResults.Items;
+
+            var relevantAlbums = albums
+                .GroupBy(a => a.Id)
+                .Select(g => g.First())
+                .ToArray();
+
+            var releases = relevantAlbums.Select(result => ProcessAlbumResult(result)).ToArray();
 
             foreach (var task in releases)
             {
                 torrentInfos.AddRange(task);
             }
 
-            foreach (var track in jsonResponse.TrackResults.Items)
+            var processedAlbumIds = new HashSet<string>(relevantAlbums.Select(a => a.Id));
+            var trackLimit = strategy switch
             {
-                // make sure the album hasn't already been processed before doing this
-                if (!jsonResponse.AlbumResults.Items.Any(a => a.Id == track.Album.Id))
+                TidalSearchStrategy.Fast => 10,
+                TidalSearchStrategy.Comprehensive => 300,
+                _ => 10
+            };
+
+            _logger.Trace($"Tidal search '{searchArtist} - {searchAlbum}': {jsonResponse.AlbumResults.Items.Length} albums fetched, {relevantAlbums.Length} relevant, {jsonResponse.TrackResults.Items.Length} tracks (limit {trackLimit})");
+
+            foreach (var track in jsonResponse.TrackResults.Items.Take(trackLimit))
+            {
+                if (!processedAlbumIds.Contains(track.Album.Id))
                 {
-                    var processTrackTask = ProcessTrackAlbumResultAsync(track);
+                    var processTrackTask = ProcessTrackAlbumResultAsync(track, strategy);
                     processTrackTask.Wait();
                     if (processTrackTask.Result != null)
                         torrentInfos.AddRange(processTrackTask.Result);
@@ -43,6 +75,48 @@ namespace NzbDrone.Core.Indexers.Tidal
             return torrentInfos
                 .OrderByDescending(o => o.Size)
                 .ToArray();
+        }
+
+        private bool IsRelevantMatch(TidalSearchResponse.Album album, string searchArtist, string searchAlbum)
+        {
+            var albumArtist = album.Artists.First().Name;
+
+            if (string.IsNullOrEmpty(searchArtist))
+            {
+                _logger.Trace($"Filtered album (no search artist): {albumArtist} - {album.Title}");
+                return false;
+            }
+
+            var artistMatch = album.Artists.Any(a =>
+                a.Name.IndexOf(searchArtist, StringComparison.OrdinalIgnoreCase) >= 0 ||
+                searchArtist.IndexOf(a.Name, StringComparison.OrdinalIgnoreCase) >= 0);
+
+            if (!artistMatch)
+            {
+                _logger.Trace($"Filtered album (artist mismatch): {albumArtist} - {album.Title} (searching for '{searchArtist}')");
+                return false;
+            }
+
+            if (string.IsNullOrEmpty(searchAlbum))
+                return true;
+
+            var albumWords = searchAlbum.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries)
+                .Where(w => w.Length >= 3)
+                .Select(w => w.ToLowerInvariant())
+                .ToArray();
+
+            if (albumWords.Length == 0)
+                return true;
+
+            var albumTitle = album.Title.ToLowerInvariant();
+            var matches = albumWords.Any(word => albumTitle.Contains(word));
+
+            if (!matches)
+            {
+                _logger.Trace($"Filtered album (album mismatch): {albumArtist} - {album.Title} (searching for '{searchAlbum}')");
+            }
+
+            return matches;
         }
 
         private IEnumerable<ReleaseInfo> ProcessAlbumResult(TidalSearchResponse.Album result)
@@ -62,14 +136,16 @@ namespace NzbDrone.Core.Indexers.Tidal
             return qualityList.Select(q => ToReleaseInfo(result, q));
         }
 
-        private async Task<IEnumerable<ReleaseInfo>> ProcessTrackAlbumResultAsync(TidalSearchResponse.Track result)
+        private async Task<IEnumerable<ReleaseInfo>> ProcessTrackAlbumResultAsync(TidalSearchResponse.Track result, TidalSearchStrategy strategy)
         {
             try
             {
-                var album = (await TidalAPI.Instance.Client.API.GetAlbum(result.Album.Id)).ToObject<TidalSearchResponse.Album>(); // track albums hold much less data so we get the full one
+                var album = (await TidalAPI.Instance.Client.API.GetAlbum(result.Album.Id)).ToObject<TidalSearchResponse.Album>();
+                if (strategy == TidalSearchStrategy.Fast && !IsRelevantMatch(album, TidalRequestGenerator.GetSearchArtist(), TidalRequestGenerator.GetSearchAlbum()))
+                    return null;
                 return ProcessAlbumResult(album);
             }
-            catch (ResourceNotFoundException) // seems to occur in some cases, not sure why. i blame tidal
+            catch (ResourceNotFoundException)
             {
                 return null;
             }

@@ -27,7 +27,10 @@ namespace NzbDrone.Core.Indexers.Tidal
         [FieldDefinition(1, Label = "Config Path", Type = FieldType.Textbox, HelpText = "This is the directory where you account's information is stored so that it can be reloaded later.")]
         public string ConfigPath { get; set; } = "";
 
-        [FieldDefinition(2, Type = FieldType.Number, Label = "Early Download Limit", Unit = "days", HelpText = "Time before release date Lidarr will download from this indexer, empty is no limit", Advanced = true)]
+        [FieldDefinition(2, Type = FieldType.Select, SelectOptions = typeof(TidalSearchStrategy), Label = "Search Strategy", HelpText = "How aggressively to search Tidal. Fast minimizes API calls and is suitable for most use cases. Comprehensive is very noisy and potentially very slow.")]
+        public int SearchStrategy { get; set; } = 0;
+
+        [FieldDefinition(3, Type = FieldType.Number, Label = "Early Download Limit", Unit = "days", HelpText = "Time before release date Lidarr will download from this indexer, empty is no limit", Advanced = true)]
         public int? EarlyReleaseLimit { get; set; }
 
         // this is hardcoded so this doesn't need to exist except that it's required by the interface
