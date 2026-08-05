@@ -14,13 +14,11 @@ namespace NzbDrone.Core.Indexers.Tidal
 
         // In the *arrs it's not easy to share data between an indexer's request generator and the parser that runs on the
         // result. The only data that survives is the URL, but the query is already an arbitrary string of the artist and
-        // album name smushed together. Store the artist and album separately so we can use them for culling junk results
-        // later in the parser. AsyncLocal is thread-safe in case of parallel requests.
-        private static readonly AsyncLocal<string> SearchArtist = new();
-        private static readonly AsyncLocal<string> SearchAlbum = new();
+        // album name smushed together. Store the full search criteria so we can use CleanArtistQuery, CleanAlbumQuery,
+        // Disambiguation, etc. later in the parser. AsyncLocal is thread-safe in case of parallel requests.
+        private static readonly AsyncLocal<SearchCriteriaBase> SearchCriteria = new();
 
-        public static string GetSearchArtist() => SearchArtist.Value;
-        public static string GetSearchAlbum() => SearchAlbum.Value;
+        public static SearchCriteriaBase Criteria => SearchCriteria.Value;
 
         public TidalIndexerSettings Settings { get; set; }
         public Logger Logger { get; set; }
@@ -30,8 +28,11 @@ namespace NzbDrone.Core.Indexers.Tidal
             // Lidarr's Indexer dialog "test" button runs GetRecentRequests and expects at least one result for the test to pass.
             //
             // This plugin doesn't support RSS-style "recent" data, so this dummy implementation is just to satisfy the test.
-            SearchArtist.Value = "Korn";
-            SearchAlbum.Value = "Follow the Leader";
+            SearchCriteria.Value = new AlbumSearchCriteria
+            {
+                Artist = new NzbDrone.Core.Music.Artist { Name = "Korn" },
+                AlbumTitle = "Follow the Leader"
+            };
 
             var pageableRequests = new IndexerPageableRequestChain();
             pageableRequests.Add(GetRequests("Korn Follow the Leader"));
@@ -41,8 +42,7 @@ namespace NzbDrone.Core.Indexers.Tidal
 
         public IndexerPageableRequestChain GetSearchRequests(AlbumSearchCriteria searchCriteria)
         {
-            SearchArtist.Value = searchCriteria.ArtistQuery;
-            SearchAlbum.Value = searchCriteria.AlbumQuery;
+            SearchCriteria.Value = searchCriteria;
 
             var chain = new IndexerPageableRequestChain();
             chain.AddTier(GetRequests($"{searchCriteria.ArtistQuery} {searchCriteria.AlbumQuery}"));
@@ -52,8 +52,7 @@ namespace NzbDrone.Core.Indexers.Tidal
 
         public IndexerPageableRequestChain GetSearchRequests(ArtistSearchCriteria searchCriteria)
         {
-            SearchArtist.Value = searchCriteria.ArtistQuery;
-            SearchAlbum.Value = "";
+            SearchCriteria.Value = searchCriteria;
 
             var chain = new IndexerPageableRequestChain();
             chain.AddTier(GetRequests(searchCriteria.ArtistQuery));
