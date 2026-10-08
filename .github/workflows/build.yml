@@ -17,15 +17,17 @@ env:
   # Disable sending usage data to Microsoft
   DOTNET_CLI_TELEMETRY_OPTOUT: true
   PLUGIN_NAME: Lidarr.Plugin.Tidal
-  PLUGIN_VERSION: 10.1.0.${{ github.run_number }}
+  PLUGIN_VERSION: 11.0.0.${{ github.run_number }}
   MINIMUM_LIDARR_VERSION: 3.0.0.4855
   DOTNET_VERSION: 8.0.405
+  WarningsNotAsErrors: "NU1902;NU1903"
 
 jobs:
   build:
     strategy:
       matrix:
-        framework: [ net8.0 ]
+        framework: 
+          - net8.0
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -52,8 +54,8 @@ jobs:
           sed -i'' -e "s/<AssemblyVersion>[0-9.*]\+<\/AssemblyVersion>/<AssemblyVersion>$MINIMUM_LIDARR_VERSION<\/AssemblyVersion>/g" ext/Lidarr/src/Directory.Build.props
       - name: Build
         run: |
-          dotnet restore src/*.sln /p:WarningsNotAsErrors="NU1902"
-          dotnet build src/*.sln /p:WarningsNotAsErrors="NU1902" -c Release -f ${{ matrix.framework }}
+          dotnet restore src/*.sln
+          dotnet build src/*.sln -c Release -f ${{ matrix.framework }}
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
