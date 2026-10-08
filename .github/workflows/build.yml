@@ -60,7 +60,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.PLUGIN_NAME }}.${{ matrix.framework }}
-          path: ./_plugins/net8.0/${{ env.PLUGIN_NAME }}/${{ env.PLUGIN_NAME }}.*
+          path: ./_plugins/${{ matrix.framework }}/${{ env.PLUGIN_NAME }}/${{ env.PLUGIN_NAME }}.*
       - name: Generate Changelog
         if: github.ref == 'refs/heads/main'
         run: |
@@ -73,15 +73,15 @@ jobs:
         if: github.ref == 'refs/heads/main'
         run: |
           sudo apt update && sudo apt install -y p7zip-full
-          7z a -tzip ${{ env.PLUGIN_NAME }}.net8.0.zip ./_plugins/net8.0/${{ env.PLUGIN_NAME }}/${{ env.PLUGIN_NAME }}.*
+          7z a -tzip ${{ env.PLUGIN_NAME }}.${{ matrix.framework }}.zip ./_plugins/${{ matrix.framework }}/${{ env.PLUGIN_NAME }}/${{ env.PLUGIN_NAME }}.*
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/main'
         with:
-          tag_name: ${{ env.PLUGIN_VERSION }}
-          name: ${{ env.PLUGIN_VERSION }}
+          tag_name: ${{ env.PLUGIN_VERSION }}.${{ matrix.framework }}
+          name: ${{ env.PLUGIN_VERSION }}.${{ matrix.framework }}
           body_path: changelog.txt
-          draft: true
+          draft: false
           prerelease: false
           files: |
-            ${{ env.PLUGIN_NAME }}.net8.0.zip
+            ${{ env.PLUGIN_NAME }}.${{ matrix.framework }}.zip
