@@ -1,0 +1,96 @@
+name: Build Plugin Release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+env:
+  PLUGIN_NAME: Lidarr.Plugin.Tidal
+  MINIMUM_LIDARR_VERSION: 3.0.0.4855
+  #
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  DOTNET_FRAMEWORK: net8.0
+  DOTNET_VERSION: 8.0.425
+  WarningsNotAsErrors: "NU1902;NU1903"
+
+jobs:
+  build-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: true
+          fetch-depth: 1
+
+      - name: Get versions
+        id: get_versions
+        run: |
+          # Get plugin and dotnet versions...
+          set -euo pipefail
+          echo "plugin_version=$(tr -d '\r\n' < version.txt)" | tee -a $GITHUB_OUTPUT
+          echo "dotnet_version=$(jq -r .sdk.version < global.json)" | tee -a $GITHUB_OUTPUT
+
+      - name: Setup dotnet
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: ${{ steps.get_versions.outputs.dotnet_version }}
+
+      - name: Update buildfiles
+        run: |
+          # Update buildfiles
+          set -euo pipefail
+          sed -i'' -e "s/<AssemblyVersion>[0-9.*]\+<\/AssemblyVersion>/<AssemblyVersion>${{ steps.get_versions.outputs.plugin_version }}<\/AssemblyVersion>/g" src/Directory.Build.props
+          sed -i'' -e "s/<AssemblyVersion>[0-9.*]\+<\/AssemblyVersion>/<AssemblyVersion>${MINIMUM_LIDARR_VERSION}<\/AssemblyVersion>/g" ext/Lidarr/src/Directory.Build.props
+
+      - name: Build
+        run: |
+          # Build the plugin
+          set -euo pipefail
+          dotnet restore src/*.sln
+          dotnet build src/*.sln -c Release -f ${{ env.DOTNET_FRAMEWORK }}
+
+      - name: Changelog
+        run: |
+          # Generate the changelog
+          set -euo pipefail
+          echo "Changelog:" > changelog.txt
+          git log --oneline $(git describe --tags --abbrev=0)..HEAD |
+          awk '{print "- " substr($0, index($0,$2))}' >> changelog.txt
+
+      - name: Package
+        run: |
+          # Package the plugin
+          set -euo pipefail
+          zip -r "${PLUGIN_NAME}.${{ env.DOTNET_FRAMEWORK }}.zip" "./_plugins/${{ env.DOTNET_FRAMEWORK }}/${PLUGIN_NAME}/${PLUGIN_NAME}".*
+
+      - name: Publish
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.get_versions.outputs.plugin_version }}
+          name: ${{ steps.get_versions.outputs.plugin_version }}
+          body_path: changelog.txt
+          draft: false
+          prerelease: false
+          files: |
+            ${{ env.PLUGIN_NAME }}.${{ env.DOTNET_FRAMEWORK }}.zip
+
+      - name: Next Version
+        run: |
+          # Bump the plugin version for the next release
+          set -euo pipefail
+          trap 'exit 0' ERR
+          git config user.name "nerney[bot]"
+          git config user.email "nerney[bot]@users.noreply.github.com"
+          IFS='.' read -r MAJOR MINOR PATCH <<< "${{ steps.get_versions.outputs.plugin_version }}"
+          PATCH=$((PATCH + 1))
+          NEXT_VERSION="$MAJOR.$MINOR.$PATCH"
+          echo "$NEXT_VERSION" > version.txt
+          git add version.txt
+          git commit -m "[skip ci] Bump version to $NEXT_VERSION"
+          git push

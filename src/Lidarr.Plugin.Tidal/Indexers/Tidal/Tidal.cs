@@ -16,7 +16,7 @@ namespace NzbDrone.Core.Indexers.Tidal
         public override bool SupportsRss => false;
         public override bool SupportsSearch => true;
         public override int PageSize => 100;
-        public override TimeSpan RateLimit => new TimeSpan(0);
+        public override TimeSpan RateLimit => TimeSpan.FromSeconds(2);
 
         private readonly ITidalProxy _tidalProxy;
 
@@ -35,11 +35,24 @@ namespace NzbDrone.Core.Indexers.Tidal
         {
             if (!string.IsNullOrEmpty(Settings.ConfigPath))
             {
-                TidalAPI.Initialize(Settings.ConfigPath, _logger);
-                bool success = TidalAPI.Instance.Client.Login(Settings.RedirectUrl).Result;
-                if (!success)
+                TidalAPI.Initialize(Settings.ConfigPath, _httpClient, _logger);
+                try
                 {
-                    return null;
+                    var loginTask = TidalAPI.Instance.Client.Login(Settings.RedirectUrl);
+                    loginTask.Wait();
+
+                    // the url was submitted to the api so it likely cannot be reused
+                    TidalAPI.Instance.Client.RegeneratePkceCodes();
+
+                    var success = loginTask.Result;
+                    if (!success)
+                    {
+                        return null;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.Error($"Tidal login failed:\n{ex}");
                 }
             }
             else
