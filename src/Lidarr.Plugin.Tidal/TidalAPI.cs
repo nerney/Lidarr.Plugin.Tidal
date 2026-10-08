@@ -3,8 +3,8 @@ using System.Linq;
 using System.Net;
 using System.Text;
 using NLog;
+using NzbDrone.Common.Http;
 using TidalSharp;
-using TidalSharp.Data;
 
 namespace NzbDrone.Plugin.Tidal
 {
@@ -12,18 +12,17 @@ namespace NzbDrone.Plugin.Tidal
     {
         public static TidalAPI Instance { get; private set; }
 
-        public static void Initialize(string configDir, Logger logger)
+        public static void Initialize(string configDir, IHttpClient httpClient, Logger logger)
         {
             if (Instance != null)
                 return;
-            Instance = new TidalAPI(configDir);
-            logger.Info("Tidal URL; use this to login: " + Instance.Client.GetPkceLoginUrl());
+            Instance = new TidalAPI(configDir, httpClient);
         }
 
-        private TidalAPI(string configDir)
+        private TidalAPI(string configDir, IHttpClient httpClient)
         {
             Instance = this;
-            _client = new(configDir);
+            _client = new(configDir, httpClient);
         }
 
         public TidalClient Client => _client;

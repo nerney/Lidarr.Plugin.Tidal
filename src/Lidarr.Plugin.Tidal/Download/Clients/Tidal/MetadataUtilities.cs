@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using Newtonsoft.Json.Linq;
+using TidalSharp;
 
 namespace NzbDrone.Core.Download.Clients.Tidal
 {
@@ -11,21 +12,25 @@ namespace NzbDrone.Core.Download.Clients.Tidal
     {
         public static string GetFilledTemplate(string template, string ext, JObject tidalPage, JObject tidalAlbum)
         {
-            var releaseDate = DateTime.Parse(tidalAlbum["releaseDate"]!.ToString(), CultureInfo.InvariantCulture);
+            var rawReleaseDate = tidalAlbum["releaseDate"]?.ToString() ?? tidalAlbum["streamStartDate"]?.ToString();
+            var releaseDate = !string.IsNullOrEmpty(rawReleaseDate) ? DateTime.Parse(rawReleaseDate, CultureInfo.InvariantCulture) : DateTime.MinValue;
+
             return GetFilledTemplate_Internal(template,
-                tidalPage["title"]!.ToString(),
-                tidalPage["album"]!["title"]!.ToString(),
+                API.CompleteTitleFromPage(tidalPage),
+                API.CompleteTitleFromPage(tidalAlbum),
                 tidalAlbum["artist"]!["name"]!.ToString(),
                 tidalPage["artist"]!["name"]!.ToString(),
                 tidalAlbum["artists"]!.Select(a => a["name"]!.ToString()).ToArray(),
                 tidalPage!["artists"]!.Select(a => a["name"]!.ToString()).ToArray(),
                 $"{(int)tidalPage["trackNumber"]!:00}",
                 tidalAlbum["numberOfTracks"]!.ToString(),
+                $"{(int)tidalPage["volumeNumber"]!:00}",
+                tidalAlbum["numberOfVolumes"]!.ToString(),
                 releaseDate.Year.ToString(CultureInfo.InvariantCulture),
                 ext);
         }
 
-        private static string GetFilledTemplate_Internal(string template, string title, string album, string albumArtist, string artist, string[] albumArtists, string[] artists, string track, string trackCount, string year, string ext)
+        private static string GetFilledTemplate_Internal(string template, string title, string album, string albumArtist, string artist, string[] albumArtists, string[] artists, string track, string trackCount, string volume, string volumeCount, string year, string ext)
         {
             StringBuilder t = new(template);
             ReplaceC("%title%", title);
@@ -36,6 +41,8 @@ namespace NzbDrone.Core.Download.Clients.Tidal
             ReplaceC("%artists%", string.Join("; ", artists));
             ReplaceC("%track%", track);
             ReplaceC("%trackcount%", trackCount);
+            ReplaceC("%volume%", volume);
+            ReplaceC("%volumecount%", volumeCount);
             ReplaceC("%ext%", ext);
             ReplaceC("%year%", year);
 

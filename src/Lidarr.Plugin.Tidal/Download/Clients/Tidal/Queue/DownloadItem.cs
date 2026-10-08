@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
 using NLog;
 using NzbDrone.Core.Parser.Model;
+using NzbDrone.Core.Plugins;
 using NzbDrone.Plugin.Tidal;
 using TidalSharp;
 using TidalSharp.Data;
@@ -23,8 +24,7 @@ namespace NzbDrone.Core.Download.Clients.Tidal.Queue
                 "96" => AudioQuality.LOW,
                 "320" => AudioQuality.HIGH,
                 "Lossless" => AudioQuality.LOSSLESS,
-                "Hi-Res" => AudioQuality.HI_RES,
-                "Hi-Res Lossless" => AudioQuality.HI_RES_LOSSLESS,
+                "24bit Lossless" => AudioQuality.HI_RES_LOSSLESS,
                 _ => AudioQuality.HIGH,
             };
 
@@ -71,7 +71,6 @@ namespace NzbDrone.Core.Download.Clients.Tidal.Queue
         private (string id, int chunks)[] _tracks;
         private TidalURL _tidalUrl;
         private JObject _tidalAlbum;
-        private DateTime _lastARLValidityCheck = DateTime.MinValue;
 
         public async Task DoDownload(TidalSettings settings, Logger logger, CancellationToken cancellation = default)
         {
@@ -85,6 +84,11 @@ namespace NzbDrone.Core.Download.Clients.Tidal.Queue
                     try
                     {
                         await DoTrackDownload(trackId, settings, cancellation);
+                        if (settings.DownloadDelay)
+                        {
+                            var delay = (float)Random.Shared.NextDouble() * (settings.DownloadDelayMax - settings.DownloadDelayMin) + settings.DownloadDelayMin;
+                            await Task.Delay((int)(delay * 1000));
+                        }
                     }
                     catch (TaskCanceledException) { }
                     catch (Exception ex)
@@ -110,13 +114,13 @@ namespace NzbDrone.Core.Download.Clients.Tidal.Queue
         private async Task DoTrackDownload(string track, TidalSettings settings, CancellationToken cancellation = default)
         {
             var page = await TidalAPI.Instance.Client.API.GetTrack(track, cancellation);
-            var songTitle = page["title"]!.ToString();
+            var songTitle = API.CompleteTitleFromPage(page);
             var artistName = page["artist"]!["name"]!.ToString();
             var albumTitle = page["album"]!["title"]!.ToString();
             var duration = page["duration"]!.Value<int>();
 
             var ext = (await TidalAPI.Instance.Client.Downloader.GetExtensionForTrack(track, Bitrate)).TrimStart('.');
-            var outPath = Path.Combine(settings.DownloadPath, MetadataUtilities.GetFilledTemplate("%albumartist%/%album%/", ext, page, _tidalAlbum), MetadataUtilities.GetFilledTemplate("%track% - %title%.%ext%", ext, page, _tidalAlbum));
+            var outPath = Path.Combine(settings.DownloadPath, MetadataUtilities.GetFilledTemplate("%albumartist%/%album%/", ext, page, _tidalAlbum), MetadataUtilities.GetFilledTemplate("%volume% - %track% - %title%.%ext%", ext, page, _tidalAlbum));
             var outDir = Path.GetDirectoryName(outPath)!;
 
             DownloadFolder = outDir;
@@ -124,6 +128,7 @@ namespace NzbDrone.Core.Download.Clients.Tidal.Queue
                 Directory.CreateDirectory(outDir);
 
             await TidalAPI.Instance.Client.Downloader.WriteRawTrackToFile(track, Bitrate, outPath, (i) => DownloadedSize++, cancellation);
+            outPath = HandleAudioConversion(outPath, settings);
 
             var plainLyrics = string.Empty;
             string syncLyrics = null;
@@ -152,7 +157,7 @@ namespace NzbDrone.Core.Download.Clients.Tidal.Queue
             await TidalAPI.Instance.Client.Downloader.ApplyMetadataToFile(track, outPath, MediaResolution.s640, plainLyrics, token: cancellation);
 
             if (syncLyrics != null)
-                await CreateLrcFile(Path.Combine(outDir, MetadataUtilities.GetFilledTemplate("%track% - %title%.%ext%", "lrc", page, _tidalAlbum)), syncLyrics);
+                await CreateLrcFile(Path.Combine(outDir, MetadataUtilities.GetFilledTemplate("%volume% - %track% - %title%.%ext%", "lrc", page, _tidalAlbum)), syncLyrics);
 
             // TODO: this is currently a waste of resources, if this pr ever gets merged, it can be reenabled
             // https://github.com/Lidarr/Lidarr/pull/4370
@@ -166,6 +171,55 @@ namespace NzbDrone.Core.Download.Clients.Tidal.Queue
                 }
             }
             catch (UnavailableArtException) { } */
+        }
+
+        private string HandleAudioConversion(string filePath, TidalSettings settings)
+        {
+            if (!settings.ExtractFlac && !settings.ReEncodeAAC)
+                return filePath;
+
+            var codecs = FFMPEG.ProbeCodecs(filePath);
+            if (codecs.Contains("flac") && settings.ExtractFlac)
+            {
+                var newFilePath = Path.ChangeExtension(filePath, "flac");
+                try
+                {
+                    FFMPEG.ConvertWithoutReencode(filePath, newFilePath);
+                    if (File.Exists(filePath))
+                        File.Delete(filePath);
+                    return newFilePath;
+                }
+                catch (FFMPEGException)
+                {
+                    if (File.Exists(newFilePath))
+                        File.Delete(newFilePath);
+                    return filePath;
+                }
+            }
+
+            if (codecs.Contains("aac") && settings.ReEncodeAAC)
+            {
+                var newFilePath = Path.ChangeExtension(filePath, "mp3");
+                try
+                {
+                    var tagFile = TagLib.File.Create(filePath);
+                    var bitrate = tagFile.Properties.AudioBitrate;
+                    tagFile.Dispose();
+
+                    FFMPEG.Reencode(filePath, newFilePath, bitrate);
+                    if (File.Exists(filePath))
+                        File.Delete(filePath);
+                    return newFilePath;
+                }
+                catch (FFMPEGException)
+                {
+                    if (File.Exists(newFilePath))
+                        File.Delete(newFilePath);
+                    return filePath;
+                }
+            }
+
+            return filePath;
         }
 
         private async Task SetTidalData(CancellationToken cancellation = default)
