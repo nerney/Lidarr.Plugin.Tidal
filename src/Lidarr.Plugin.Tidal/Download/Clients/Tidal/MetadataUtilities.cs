@@ -1,4 +1,3 @@
-using System;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -12,8 +11,7 @@ namespace NzbDrone.Core.Download.Clients.Tidal
     {
         public static string GetFilledTemplate(string template, string ext, JObject tidalPage, JObject tidalAlbum)
         {
-            var rawReleaseDate = tidalAlbum["releaseDate"]?.ToString() ?? tidalAlbum["streamStartDate"]?.ToString();
-            var releaseDate = !string.IsNullOrEmpty(rawReleaseDate) ? DateTime.Parse(rawReleaseDate, CultureInfo.InvariantCulture) : DateTime.MinValue;
+            var releaseDate = API.GetAlbumReleaseDate(tidalAlbum);
 
             return GetFilledTemplate_Internal(template,
                 API.CompleteTitleFromPage(tidalPage),

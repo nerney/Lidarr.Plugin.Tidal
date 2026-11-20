@@ -1,6 +1,7 @@
 using Newtonsoft.Json.Linq;
 using NzbDrone.Common.Http;
 using System.Collections.Concurrent;
+using System.Globalization;
 using System.Net;
 using System.Text;
 using TidalSharp.Data;
@@ -134,32 +135,31 @@ public class API
         }
 
         if (response.StatusCode == HttpStatusCode.NotFound)
-        {
-            JToken? errors = json["errors"];
-            if (errors != null && errors.Any())
-                throw new ResourceNotFoundException(errors[0]!["detail"]!.ToString());
-
-            JToken? userMessage = json["userMessage"];
-            if (userMessage != null)
-                throw new ResourceNotFoundException(userMessage.ToString());
-
-            throw new ResourceNotFoundException(json.ToString());
-        }
+            throw new ResourceNotFoundException(GetErrorMessage(json));
 
         if (response.HasHttpError)
-        {
-            JToken? errors = json["errors"];
-            if (errors != null && errors.Any())
-                throw new APIException(errors[0]!["detail"]!.ToString());
-
-            JToken? userMessage = json["userMessage"];
-            if (userMessage != null)
-                throw new APIException(userMessage.ToString());
-
-            throw new APIException(json.ToString());
-        }
+            throw new APIException(GetErrorMessage(json));
 
         return json;
+    }
+
+    private static string GetErrorMessage(JObject json)
+    {
+        JToken? errors = json["errors"];
+        if (errors != null && errors.Any())
+            return errors[0]!["detail"]!.ToString();
+
+        JToken? userMessage = json["userMessage"];
+        if (userMessage != null)
+            return userMessage.ToString();
+
+        return json.ToString();
+    }
+
+    public static DateTime GetAlbumReleaseDate(JToken album)
+    {
+        var rawReleaseDate = album["releaseDate"]?.ToString() ?? album["streamStartDate"]?.ToString();
+        return !string.IsNullOrEmpty(rawReleaseDate) ? DateTime.Parse(rawReleaseDate, CultureInfo.InvariantCulture) : DateTime.MinValue;
     }
 
     public static string CompleteTitleFromPage(JToken page)

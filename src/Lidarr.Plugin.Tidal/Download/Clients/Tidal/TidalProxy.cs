@@ -9,7 +9,7 @@ using NzbDrone.Common.Extensions;
 using NzbDrone.Core.Download.Clients.Tidal.Queue;
 using NzbDrone.Core.Parser;
 using NzbDrone.Core.Parser.Model;
-using TidalSharp.Data;
+using NzbDrone.Plugin.Tidal;
 
 namespace NzbDrone.Core.Download.Clients.Tidal
 {
@@ -67,14 +67,7 @@ namespace NzbDrone.Core.Download.Clients.Tidal
 
         private DownloadClientItem ToDownloadClientItem(DownloadItem x)
         {
-            var format = x.Bitrate switch
-            {
-                AudioQuality.LOW => "AAC (M4A) 96kbps",
-                AudioQuality.HIGH => "AAC (M4A) 320kbps",
-                AudioQuality.LOSSLESS => "FLAC (M4A) Lossless",
-                AudioQuality.HI_RES_LOSSLESS => "FLAC (M4A) 24bit Lossless",
-                _ => throw new NotImplementedException(),
-            };
+            var format = TidalAudioQuality.GetFormat(x.Bitrate);
 
             var title = $"{x.Artist} - {x.Title} [WEB] [{format}]";
             if (x.Explicit)

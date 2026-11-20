@@ -65,7 +65,7 @@ internal class MPD : IMPDNode
 
         ProgramInformations = node.GetChildrenOfType<ProgramInformation>("ProgramInformation");
         BaseUrls = node.GetChildrenOfType<BaseUrl>("BaseURL");
-        Locations = node.ChildNodes.Cast<XmlNode>().Where(n => n.LocalName == "Location").Select(n => n.InnerText).ToArray();
+        Locations = node.GetChildTextValues("Location");
         Periods = node.GetChildrenOfType<Period>("Period");
         Metrics = node.GetChildrenOfType<Metrics>("Metrics");
         UTCTimings = node.GetChildrenOfType<Descriptor>("UTCTiming");
@@ -86,9 +86,9 @@ internal class ProgramInformation : IMPDNode
         Language = node.GetAttributeValue<string>("lang");
         MoreInformationURL = node.GetAttributeValue<string>("moreInformationURL");
 
-        Titles = node.ChildNodes.Cast<XmlNode>().Where(n => n.LocalName == "Title").Select(n => n.InnerText).ToArray();
-        Sources = node.ChildNodes.Cast<XmlNode>().Where(n => n.LocalName == "Source").Select(n => n.InnerText).ToArray();
-        Copyrights = node.ChildNodes.Cast<XmlNode>().Where(n => n.LocalName == "Copyright").Select(n => n.InnerText).ToArray();
+        Titles = node.GetChildTextValues("Title");
+        Sources = node.GetChildTextValues("Source");
+        Copyrights = node.GetChildTextValues("Copyright");
     }
 }
 

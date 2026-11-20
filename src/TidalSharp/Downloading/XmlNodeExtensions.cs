@@ -18,12 +18,15 @@ internal static class XmlNodeExtensions
         var nodeArray = new T[childNodesOfTag.Length];
         for (int i = 0; i < childNodesOfTag.Length; i++)
         {
-            var child = new T();
-            child.Parse(childNodesOfTag[i]);
-            nodeArray[i] = child;
+            nodeArray[i] = childNodesOfTag[i].NodeToMPDType<T>();
         }
 
         return nodeArray;
+    }
+
+    public static string[] GetChildTextValues(this XmlNode node, string tag)
+    {
+        return node.ChildNodes.Cast<XmlNode>().Where(n => n.LocalName == tag).Select(n => n.InnerText).ToArray();
     }
 
     public static T? GetAttributeValue<T>(this XmlNode node, string attributeName) where T : struct

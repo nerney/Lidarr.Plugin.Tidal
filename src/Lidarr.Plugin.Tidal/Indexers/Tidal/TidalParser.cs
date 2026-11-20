@@ -237,28 +237,23 @@ namespace NzbDrone.Core.Indexers.Tidal
                 DownloadProtocol = nameof(TidalDownloadProtocol)
             };
 
-            string format;
             switch (bitrate)
             {
                 case AudioQuality.LOW:
                     result.Codec = "AAC";
                     result.Container = "96";
-                    format = "AAC (M4A) 96kbps";
                     break;
                 case AudioQuality.HIGH:
                     result.Codec = "AAC";
                     result.Container = "320";
-                    format = "AAC (M4A) 320kbps";
                     break;
                 case AudioQuality.LOSSLESS:
                     result.Codec = "FLAC";
                     result.Container = "Lossless";
-                    format = "FLAC (M4A) Lossless";
                     break;
                 case AudioQuality.HI_RES_LOSSLESS:
                     result.Codec = "FLAC";
                     result.Container = "24bit Lossless";
-                    format = "FLAC (M4A) 24bit Lossless";
                     break;
                 default:
                     throw new NotImplementedException();
@@ -288,7 +283,7 @@ namespace NzbDrone.Core.Indexers.Tidal
                 result.Title += " [Explicit]";
             }
 
-            result.Title += $" [{format}] [WEB]";
+            result.Title += $" [{TidalAudioQuality.GetFormat(bitrate)}] [WEB]";
 
             return result;
         }
