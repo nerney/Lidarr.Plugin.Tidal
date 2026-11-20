@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - main
+      - develop
     tags-ignore:
       - '**'
   pull_request:
@@ -17,17 +18,18 @@ env:
   # Disable sending usage data to Microsoft
   DOTNET_CLI_TELEMETRY_OPTOUT: true
   PLUGIN_NAME: Lidarr.Plugin.Tidal
-  PLUGIN_VERSION: 11.0.0.${{ github.run_number }}
-  MINIMUM_LIDARR_VERSION: 3.0.0.4855
-  DOTNET_VERSION: 8.0.405
+  PLUGIN_VERSION: 12.0.0.${{ github.run_number }}
+  MINIMUM_LIDARR_VERSION: 4.0.0.5222
+  DOTNET_VERSION: 10.0.404
   WarningsNotAsErrors: "NU1902;NU1903"
 
 jobs:
   build:
     strategy:
       matrix:
-        framework: 
-          - net8.0
+        framework:
+          - net10.0
+
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -35,45 +37,55 @@ jobs:
         with:
           submodules: true
           fetch-depth: 0
-          tags: true
+
       - name: Setup .NET Core
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
+
       - name: Create global.json
         run: |
           echo '{"sdk":{"version": "${{ env.DOTNET_VERSION }}"}}' > ./global.json
+
       - name: Generate metadata
         id: gen_meta
         run: |
           echo "branch=${GITHUB_REF#refs/heads/}" | tr '/' '-'  >> $GITHUB_OUTPUT
+
       - name: Update Version Info
         run: |
           sed -i'' -e "s/<AssemblyVersion>[0-9.*]\+<\/AssemblyVersion>/<AssemblyVersion>$PLUGIN_VERSION<\/AssemblyVersion>/g" src/Directory.Build.props
           sed -i'' -e "s/<AssemblyConfiguration>[\$()A-Za-z-]\+<\/AssemblyConfiguration>/<AssemblyConfiguration>${{ steps.gen_meta.outputs.branch }}<\/AssemblyConfiguration>/g" src/Directory.Build.props
           sed -i'' -e "s/<AssemblyVersion>[0-9.*]\+<\/AssemblyVersion>/<AssemblyVersion>$MINIMUM_LIDARR_VERSION<\/AssemblyVersion>/g" ext/Lidarr/src/Directory.Build.props
+
       - name: Build
         run: |
           dotnet restore src/*.sln
-          dotnet build src/*.sln -c Release -f ${{ matrix.framework }}
+          dotnet build src/Lidarr.Plugin.Tidal/Lidarr.Plugin.Tidal.csproj -c Release -f ${{ matrix.framework }} --no-restore -p:SolutionDir="$GITHUB_WORKSPACE/src/"
+
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
+        if: github.ref == 'refs/heads/main'
         with:
           name: ${{ env.PLUGIN_NAME }}.${{ matrix.framework }}
           path: ./_plugins/${{ matrix.framework }}/${{ env.PLUGIN_NAME }}/${{ env.PLUGIN_NAME }}.*
+
       - name: Generate Changelog
         if: github.ref == 'refs/heads/main'
         run: |
           echo "Changelog:" > changelog.txt
           git log --oneline $(git describe --tags --abbrev=0)..HEAD | awk '{print "- " substr($0, index($0,$2))}' >> changelog.txt
+
       - name: Display Changelog
         if: github.ref == 'refs/heads/main'
         run: cat changelog.txt
+
       - name: Zip Plugin
         if: github.ref == 'refs/heads/main'
         run: |
           sudo apt update && sudo apt install -y p7zip-full
           7z a -tzip ${{ env.PLUGIN_NAME }}.${{ matrix.framework }}.zip ./_plugins/${{ matrix.framework }}/${{ env.PLUGIN_NAME }}/${{ env.PLUGIN_NAME }}.*
+
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/main'
